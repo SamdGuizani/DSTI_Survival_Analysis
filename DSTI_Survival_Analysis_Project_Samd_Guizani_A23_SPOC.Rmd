@@ -1,0 +1,120 @@
+---
+title: "DSTI - Survival Analysis Project"
+author: "Samd Guizani"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Imports
+
+```{r, message=FALSE, warning=FALSE}
+library(tidyverse)
+library(tidyr)
+library(broom)
+library(survival)
+library(gtsummary)
+library(ggfortify)
+library(ggsurvfit)
+library(survminer) 
+library(gridExtra)
+```
+
+# Functions
+
+```{r}
+
+```
+
+# Main Script
+
+## Data Loading & Preprocessing
+
+-   `NewSpring.csv` is a publicly available dataset from *William Q. Meeker, Luis A. Escobar, Francis G. Pascual, **Statistical Methods for Reliability Data, 2nd Edition*** ([Statistical Methods for Reliability Data, 2nd Edition \| Wiley](https://www.wiley.com/en-us/Statistical+Methods+for+Reliability+Data%2C+2nd+Edition-p-9781118115459))
+-   The file, among other datasets focusing on survival and reliability analysis, are available on *DataShare, Iowa State University’s open data repository* ([Item - Reliability Data: Laboratory Failure-Time and Single-Time Strength Data - Iowa State University - Figshare](https://iastate.figshare.com/articles/dataset/Reliability_Data_Laboratory_Failure-Time_and_Single-Time_Strength_Data/14454753?file=28383774))
+-   The dataset records the ***number of cycles to failure*** for a spring under different conditions, including:
+    -   ***Stroke length*** (factor A, numeric, 50 to 70 mils)
+    -   ***Processing temperature*** (factor B, numeric 500 to 1000 F)
+    -   ***Method used*** (factor C, categorical, New vs. Old)
+-   The experiment is organized as a **Full Factorial Design**. For each combination of the 3 factors, 9 units are tested for a maximum of 5000 cycles. The `Censoring` column indicates whether the observation is censored (0, the spring survived 5000 cycles) or an event (1, number of cycles until failure is recorded)
+-   The `Count` column represents the number of occurrences for each combination of conditions reaching an identical outcome. \
+    *E.g.: a row where Censoring = 0 (Censored) and Count = 3 means 3 units reached the study end (5000 cycles) and removed from the test while still functioning.*
+
+```{r}
+# Import data from folder Datasets
+df <- read.csv("./Datasets/NewSpring.csv")
+
+# Rename columns for better readability
+colnames(df) = c('Cycles', 'A.Stroke', 'B.ProcessTpt', 'C.Method', 'Censoring', 'Count')
+factor_names = colnames(df)[2:4]
+
+# Uncount the data by replicating rows according to the 'Count' column
+df <- df |> uncount(Count)
+
+# Convert Method to factor
+df$C.Method <- as.factor(df$C.Method)
+
+# Convert Censoring to factor (0 for censored, 1 for event)
+df$Censoring <- ifelse(df$Censoring == "Failed", 1, 0)
+```
+
+
+## Exploratory Data Analysis
+
+```{r}
+for (f in factor_names) {
+  boxplot(Cycles ~ get(f), 
+          data = df, 
+          main = paste("Boxplot of Cycles by", f), 
+          xlab = f, 
+          ylab = "Cycles to Failure")
+}
+```
+```{r}
+# Plot 'Cycles' vs. 'A.Stroke', colored by 'C.Method' color by 'B.ProcessTpt'
+print(ggplot(df, aes(x = A.Stroke, y = Cycles, colour = as.factor(B.ProcessTpt))) +
+        geom_point() +
+        geom_smooth(method = "lm", se = TRUE) +
+        facet_wrap(~ C.Method)
+      )
+```
+
+
+## Survival Analysis
+
+```{r}
+# Fit the survival curves, weighted by 'Count'
+# 'Cycles' as time and 'Censoring' as event indicator
+for (f in factor_names) {
+  
+  fit <- survfit(
+    Surv(Cycles, Censoring) ~ get(f), 
+    data = df,
+    conf.type = "log-log")
+  
+  # Plot the curves
+  ggsurvplot(fit, data = df, 
+             conf.int = TRUE, 
+             pval = TRUE, 
+             title = paste("Survival Curves by", f)) |> print()
+}
+```
+
+```{r}
+survdiff(
+  Surv(Cycles, Censoring) ~ A.Stroke + B.ProcessTpt + C.Method, 
+  data = df)
+```
+
+
+```{r}
+# Model with main effects and the interaction between Stroke and Method
+cox_interaction <- coxph(
+  Surv(Cycles, Censoring) ~ A.Stroke + B.ProcessTpt + C.Method + C.Method,
+  data = df)
+cox_interaction
+```
+
