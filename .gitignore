@@ -1,0 +1,7 @@
+# R-specific files
+.Rhistory
+.RData
+.Ruserdata
+
+# If you use RStudio
+.Rproj.user/

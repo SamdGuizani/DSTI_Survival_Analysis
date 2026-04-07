@@ -15,12 +15,13 @@ knitr::opts_chunk$set(echo = TRUE)
 library(tidyverse)
 library(tidyr)
 library(broom)
-library(survival)
+library(survival) # Survival analysis toolbox
 library(gtsummary)
 library(ggfortify)
 library(ggsurvfit)
-library(survminer) 
+library(survminer) # For survival analysis plots 
 library(gridExtra)
+library(muhaz) # Hazard function estimation
 ```
 
 # Functions
@@ -40,7 +41,7 @@ library(gridExtra)
     -   ***Processing temperature*** (factor B, numeric 500 to 1000 F)
     -   ***Method used*** (factor C, categorical, New vs. Old)
 -   The experiment is organized as a **Full Factorial Design**. For each combination of the 3 factors, 9 units are tested for a maximum of 5000 cycles. The `Censoring` column indicates whether the observation is censored (0, the spring survived 5000 cycles) or an event (1, number of cycles until failure is recorded)
--   The `Count` column represents the number of occurrences for each combination of conditions reaching an identical outcome. \
+-   The `Count` column represents the number of occurrences for each combination of conditions reaching an identical outcome.\
     *E.g.: a row where Censoring = 0 (Censored) and Count = 3 means 3 units reached the study end (5000 cycles) and removed from the test while still functioning.*
 
 ```{r}
@@ -61,7 +62,6 @@ df$C.Method <- as.factor(df$C.Method)
 df$Censoring <- ifelse(df$Censoring == "Failed", 1, 0)
 ```
 
-
 ## Exploratory Data Analysis
 
 ```{r}
@@ -73,8 +73,10 @@ for (f in factor_names) {
           ylab = "Cycles to Failure")
 }
 ```
+
 ```{r}
-# Plot 'Cycles' vs. 'A.Stroke', colored by 'C.Method' color by 'B.ProcessTpt'
+# Plot 'Cycles' vs. 'A.Stroke'
+# Visualize other factors as color or facets
 print(ggplot(df, aes(x = A.Stroke, y = Cycles, colour = as.factor(B.ProcessTpt))) +
         geom_point() +
         geom_smooth(method = "lm", se = TRUE) +
@@ -82,14 +84,12 @@ print(ggplot(df, aes(x = A.Stroke, y = Cycles, colour = as.factor(B.ProcessTpt))
       )
 ```
 
-
 ## Survival Analysis
 
 ```{r}
-# Fit the survival curves, weighted by 'Count'
-# 'Cycles' as time and 'Censoring' as event indicator
+# Fit Kaplan-Meier model for each factor
+
 for (f in factor_names) {
-  
   fit <- survfit(
     Surv(Cycles, Censoring) ~ get(f), 
     data = df,
@@ -100,21 +100,39 @@ for (f in factor_names) {
              conf.int = TRUE, 
              pval = TRUE, 
              title = paste("Survival Curves by", f)) |> print()
+  
 }
 ```
 
 ```{r}
+# Compare groups using Logrank or Fleming-Harrington tests 
+rho = 1 # 0 for Logrank, 1 for FH test
 survdiff(
-  Surv(Cycles, Censoring) ~ A.Stroke + B.ProcessTpt + C.Method, 
-  data = df)
+  Surv(Cycles, Censoring) ~ A.Stroke + B.ProcessTpt + C.Method, data = df, rho = rho)
 ```
 
+```{r}
+# Example for comparing two groups
+
+# old_haz <- with(subset(df, A.Stroke == 50), kphaz.fit(Cycles, Censoring))
+# new_haz <- with(subset(df, A.Stroke == 70), kphaz.fit(Cycles, Censoring))
+
+# old_haz <- with(subset(df, B.ProcessTpt == 500), kphaz.fit(Cycles, Censoring))
+# new_haz <- with(subset(df, B.ProcessTpt == 1000), kphaz.fit(Cycles, Censoring))
+
+old_haz <- with(subset(df, C.Method == "Old"), kphaz.fit(Cycles, Censoring))
+new_haz <- with(subset(df, C.Method == "New"), kphaz.fit(Cycles, Censoring))
+
+plot(old_haz$time, old_haz$haz, type='l', col="red", 
+     ylim = c(0, max(old_haz$haz, new_haz$haz))
+     )
+lines(new_haz$time, new_haz$haz, col="blue")
+```
 
 ```{r}
 # Model with main effects and the interaction between Stroke and Method
 cox_interaction <- coxph(
-  Surv(Cycles, Censoring) ~ A.Stroke + B.ProcessTpt + C.Method + C.Method,
+  Surv(Cycles, Censoring) ~ A.Stroke + B.ProcessTpt + C.Method,
   data = df)
 cox_interaction
 ```
-
