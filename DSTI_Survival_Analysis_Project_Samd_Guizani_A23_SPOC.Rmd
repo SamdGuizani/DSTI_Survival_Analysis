@@ -57,12 +57,15 @@ df <- df |> uncount(Count)
 
 # Convert Method to factor
 df$C.Method <- as.factor(df$C.Method)
+df$C.Method <- relevel(df$C.Method, ref = "Old" ) # "Old" considered as reference
 
 # Convert Censoring to factor (0 for censored, 1 for event)
 df$Censoring <- ifelse(df$Censoring == "Failed", 1, 0)
 ```
 
 ## Exploratory Data Analysis
+
+### Boxplots
 
 ```{r}
 for (f in factor_names) {
@@ -74,6 +77,14 @@ for (f in factor_names) {
 }
 ```
 
+#### Observations:
+
+-   The distribution of the number of cycles to spring failure graphically indicate a strong effect of covariate A and C.
+
+-   Covariate B seems to have less influence on the failure rate.
+
+### Linear "trending"
+
 ```{r}
 # Plot 'Cycles' vs. 'A.Stroke'
 # Visualize other factors as color or facets
@@ -84,16 +95,37 @@ print(ggplot(df, aes(x = A.Stroke, y = Cycles, colour = as.factor(B.ProcessTpt))
       )
 ```
 
+#### Observations:
+
+-   ***ATTENTION***: Fitting a linear regression is only made for *informative purpose*. Censored data should not be modeled using linear regression models.
+
+-   Increasing A -\> increasing failure rate
+
+-   Increasing B -\> increasing failure rate
+
+-   New method (C) -\> decreasing failure rate
+
 ## Survival Analysis
 
+### Kaplan-Meir models [1 covariate at a time]
+
 ```{r}
-# Fit Kaplan-Meier model for each factor
+# Fit Kaplan-Meier model for each covariate
 
 for (f in factor_names) {
   fit <- survfit(
     Surv(Cycles, Censoring) ~ get(f), 
     data = df,
     conf.type = "log-log")
+  
+  print(paste0('-------- Survival model with covariate: ', f, ' --------'))
+  cat('\n')
+  
+  print(fit)
+  
+  cat('\n')
+  print('---------------------------------------------------------------')
+  cat('\n')
   
   # Plot the curves
   ggsurvplot(fit, data = df, 
@@ -104,35 +136,128 @@ for (f in factor_names) {
 }
 ```
 
+#### Observations:
+
+-   A.Stroke and C.Method show significant differences (p \< 0.05) in survival curves
+
+-   B.ProcessTpt shows less pronounced differences (p = 0.051)
+
+### Logrank comparison tests [1 covariate at a time, with stratification]
+
 ```{r}
 # Compare groups using Logrank or Fleming-Harrington tests 
-rho = 1 # 0 for Logrank, 1 for FH test
-survdiff(
-  Surv(Cycles, Censoring) ~ A.Stroke + B.ProcessTpt + C.Method, data = df, rho = rho)
+
+rho = 0 # 0 for Logrank, 1 for FH test
+
+for (f in factor_names) {
+  # 1. Identify which variables to stratify by
+  strata_vars <- factor_names[factor_names != f]
+  
+  # 2. Build the formula string
+  # Result looks like: "Surv(Cycles, Censoring) ~ A.Stroke + strata(B.ProcessTpt, C.Method)"
+  strata_part <- paste0("strata(", paste(strata_vars, collapse = ", "), ")")
+  formula_str <- paste0("Surv(Cycles, Censoring) ~ ", f, " + ", strata_part)
+  
+  print(paste0('-------- Testing Covariate: ', f, ' --------'))
+  print(paste0('Formula: ', formula_str))
+  
+  # 3. Convert string to formula and run test
+  test_result <- survdiff(as.formula(formula_str), data = df, rho = rho)
+  
+  print(test_result)
+  cat('\n--------------------------------------------\n\n')
+}
+```
+
+#### Observations:
+
+-   A, B and C show statistically significant differences (p \< 0.05) in survival curves
+
+### Hazard functions at low vs. high levels of each covariate
+
+```{r}
+# Example for comparing two groups A.Stroke = 50 vs. 70
+
+haz_low <- with(subset(df, A.Stroke == 50), kphaz.fit(Cycles, Censoring))
+haz_high <- with(subset(df, A.Stroke == 70), kphaz.fit(Cycles, Censoring))
+
+plot(haz_low$time, haz_low$haz, type='l', col="red", 
+     xlab = 'Cyles',
+     ylab = 'h(t)',
+     ylim = c(0, max(haz_low$haz, haz_high$haz))
+     )
+lines(haz_high$time, haz_high$haz, col="blue")
 ```
 
 ```{r}
-# Example for comparing two groups
+# Example for comparing B.ProcessTpt = 500 vs. 1000
 
-# old_haz <- with(subset(df, A.Stroke == 50), kphaz.fit(Cycles, Censoring))
-# new_haz <- with(subset(df, A.Stroke == 70), kphaz.fit(Cycles, Censoring))
+haz_low <- with(subset(df, B.ProcessTpt == 500), kphaz.fit(Cycles, Censoring))
+haz_high <- with(subset(df, B.ProcessTpt == 1000), kphaz.fit(Cycles, Censoring))
 
-# old_haz <- with(subset(df, B.ProcessTpt == 500), kphaz.fit(Cycles, Censoring))
-# new_haz <- with(subset(df, B.ProcessTpt == 1000), kphaz.fit(Cycles, Censoring))
-
-old_haz <- with(subset(df, C.Method == "Old"), kphaz.fit(Cycles, Censoring))
-new_haz <- with(subset(df, C.Method == "New"), kphaz.fit(Cycles, Censoring))
-
-plot(old_haz$time, old_haz$haz, type='l', col="red", 
-     ylim = c(0, max(old_haz$haz, new_haz$haz))
+plot(haz_low$time, haz_low$haz, type='l', col="red", 
+     xlab = 'Cyles',
+     ylab = 'h(t)',
+     ylim = c(0, max(haz_low$haz, haz_high$haz))
      )
-lines(new_haz$time, new_haz$haz, col="blue")
+lines(haz_high$time, haz_high$haz, col="blue")
 ```
+
+```{r}
+# Example for comparing two groups C.Method = Old vs. New
+
+haz_low <- with(subset(df, C.Method == "Old"), kphaz.fit(Cycles, Censoring))
+haz_high <- with(subset(df, C.Method == "New"), kphaz.fit(Cycles, Censoring))
+
+plot(haz_low$time, haz_low$haz, type='l', col="red", 
+     xlab = 'Cyles',
+     ylab = 'h(t)',
+     ylim = c(0, max(haz_low$haz, haz_high$haz))
+     )
+lines(haz_high$time, haz_high$haz, col="blue")
+```
+
+#### Observations:
+
+-   Graphs not easy to interpret, but can observe the following:
+
+    -   A, hazard function for 70 (blue) higher than 50 (red) -\> higher failure rate over time.
+
+    -   B, hazard function for 500 (blue) higher than 1000 (red) -\> higher failure rate over time.
+
+    -   C, hazard function for "New" (blue) lower than "Old" (red) -\> lower failure rate over time.
+
+### Cox Proportional Hazard (CPH) modelling
 
 ```{r}
 # Model with main effects and the interaction between Stroke and Method
-cox_interaction <- coxph(
-  Surv(Cycles, Censoring) ~ A.Stroke + B.ProcessTpt + C.Method,
+fit.cph_full <- coxph(
+  Surv(Cycles, Censoring) ~ A.Stroke + B.ProcessTpt + C.Method + 
+    A.Stroke * B.ProcessTpt + A.Stroke * C.Method + B.ProcessTpt * C.Method,
   data = df)
-cox_interaction
+summary(fit.cph_full)
 ```
+
+##### Observations:
+
+-   Full model with all main effects and interactions shows that A.Stroke is significant (p \< 0.05)
+
+-   Model needs to be simplified
+
+### CPH Model selection with AIC selection using step() function
+
+```{r}
+# Perform model selection based on AIC
+fit.cph_selected <- step(fit.cph_full, direction = "both", trace = 2)
+```
+
+```{r}
+# Display the summary of the selected model
+summary(fit.cph_selected)
+```
+
+#### Observations:
+
+-   The selected model includes A, B and C which are all significant (p \< 0.05)
+-   No interaction terms included in the final model, suggesting that the effects of the covariates are additive rather than multiplicative.
+-   Results from CPH model after term selection are consistent with previous analysis (Kaplan-Meier, Logrank tests, hazard functions) indicating that A, B and C have significant effects on the survival of the springs.

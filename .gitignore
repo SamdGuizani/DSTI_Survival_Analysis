@@ -5,3 +5,6 @@
 
 # If you use RStudio
 .Rproj.user/
+
+# Additional exclusions
+*.html # Avoid tracking outputs of knit
