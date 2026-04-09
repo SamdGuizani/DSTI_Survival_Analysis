@@ -8,3 +8,4 @@
 
 # Additional exclusions
 *.html # Avoid tracking outputs of knit
+/DSTI_Survival_Analysis_Project_Samd_Guizani_A23_SPOC_files
