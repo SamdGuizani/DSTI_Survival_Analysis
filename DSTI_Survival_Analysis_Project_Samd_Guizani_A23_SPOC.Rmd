@@ -62,6 +62,7 @@ df$C.Method <- relevel(df$C.Method, ref = "Old" ) # "Old" considered as referenc
 
 # Convert Censoring to factor (0 for censored, 1 for event)
 df$Censoring <- ifelse(df$Censoring == "Failed", 1, 0)
+table(df$Censoring)
 ```
 
 ## Exploratory Data Analysis
@@ -82,7 +83,6 @@ for (f in factor_names) {
 #### Observations:
 
 -   The distribution of the number of cycles to spring failure graphically indicate a strong effect of covariate A and C.
-
 -   Covariate B seems to have less influence on the failure rate.
 
 ### Linear "trending"
@@ -92,7 +92,7 @@ for (f in factor_names) {
 # Visualize other factors as color or facets
 print(ggplot(df, aes(x = A.Stroke, y = Cycles, colour = as.factor(B.ProcessTpt))) +
         geom_point() +
-        geom_smooth(method = "lm", se = TRUE) +
+        geom_smooth(method = "lm", se = FALSE, linewidth = 2) +
         facet_wrap(~ C.Method)
       )
 ```
@@ -100,11 +100,8 @@ print(ggplot(df, aes(x = A.Stroke, y = Cycles, colour = as.factor(B.ProcessTpt))
 #### Observations:
 
 -   ***ATTENTION***: Fitting a linear regression is only made for *informative purpose*. Censored data should not be modeled using linear regression models.
-
 -   Increasing A -\> increasing failure rate
-
 -   Increasing B -\> increasing failure rate
-
 -   New method (C) -\> decreasing failure rate
 
 ## Survival Analysis
@@ -114,22 +111,22 @@ print(ggplot(df, aes(x = A.Stroke, y = Cycles, colour = as.factor(B.ProcessTpt))
 ```{r}
 # Fit Kaplan-Meier model for each covariate
 for (f in factor_names) {
-  fit <- survfit(
+  fit.KM <- survfit(
     Surv(Cycles, Censoring) ~ get(f), 
     data = df,
     conf.type = "log-log")
   
-  print(paste0('-------- Survival model with covariate: ', f, ' --------'))
+  print(paste0('-------- KM Survival model with covariate: ', f, ' --------'))
   cat('\n')
   
-  print(fit)
+  print(fit.KM)
   
   cat('\n')
   print('---------------------------------------------------------------')
   cat('\n')
   
   # Plot the curves
-  ggsurvplot(fit, data = df, 
+  ggsurvplot(fit.KM, data = df, 
              conf.int = TRUE, 
              pval = TRUE, 
              title = paste("Survival Curves by", f)) |> print()
@@ -139,7 +136,7 @@ for (f in factor_names) {
 
 #### Observations:
 
--   A.Stroke and C.Method show significant differences (p \< 0.05) in survival curves
+-   A.Stroke and C.Method show significant differences (p \< 0.001) in survival curves
 
 -   B.ProcessTpt shows less pronounced differences (p = 0.051)
 
@@ -172,7 +169,7 @@ for (f in factor_names) {
 
 #### Observations:
 
--   A, B and C show statistically significant differences (p \< 0.05) in survival curves
+-   A, B and C show statistically significant differences (p \< 0.001) in survival curves
 
 ### Hazard functions at low vs. high levels of each covariate
 
@@ -219,11 +216,8 @@ lines(haz_high$time, haz_high$haz, col="blue")
 #### Observations:
 
 -   Graphs not easy to interpret, but can observe the following:
-
     -   A, hazard function for 70 (blue) higher than 50 (red) -\> higher failure rate over time.
-
     -   B, hazard function for 500 (blue) higher than 1000 (red) -\> higher failure rate over time.
-
     -   C, hazard function for "New" (blue) lower than "Old" (red) -\> lower failure rate over time.
 
 ### Cox Proportional Hazard (CPH) modelling
@@ -239,8 +233,7 @@ summary(fit.cph_full)
 
 ##### Observations:
 
--   Full model with all main effects and interactions shows that A.Stroke is significant (p \< 0.05)
-
+-   Full model with all main effects and interactions shows that A.Stroke is significant (p \< 0.01)
 -   Model needs to be simplified
 
 ### CPH Model selection with AIC selection using step() function
@@ -257,7 +250,7 @@ summary(fit.cph_selected)
 
 #### Observations:
 
--   The selected model includes A, B and C which are all significant (p \< 0.05)
+-   The selected model includes A, B and C which are all significant (p \< 0.001) and have hazard ratios consistent with previous analysis (A and B increase hazard, C decreases hazard).
 -   No interaction terms included in the final model, suggesting that the effects of the covariates are additive rather than multiplicative.
 -   Results from CPH model after term selection are consistent with previous analysis (Kaplan-Meier, Logrank tests, hazard functions) indicating that A, B and C have significant effects on the survival of the springs.
 
@@ -265,8 +258,7 @@ summary(fit.cph_selected)
 
 ```{r}
 # Martingale residuals for the selected model
-martingale_residuals <- residuals(fit.cph_selected, type = "martingale")
-df$Resid.Martingale <- martingale_residuals
+df$Resid.Martingale <- residuals(fit.cph_selected, type = "martingale")
 
 # plot residuals vs factors
 par(mfrow = c(1, 3))
@@ -275,46 +267,37 @@ with(df, {
   plot(A.Stroke, Resid.Martingale, 
        xlab = "A.Stroke", 
        ylab = "Martingale Residuals", 
-       main = "Martingale Resid. vs. A.Stroke")
-  lines(lowess(A.Stroke, Resid.Martingale), col = "red")
+       main = "Martingale Resid. vs. A.Stroke",
+       pch = 19 , col = 'black')
+  lines(lowess(A.Stroke, Resid.Martingale), col = "red", lw = 2)
   
   plot(B.ProcessTpt, Resid.Martingale, 
        xlab = "B.ProcessTpt", 
        ylab = "Martingale Residuals", 
-       main = "Martingale Resid. vs. B.ProcessTpt")
-  lines(lowess(B.ProcessTpt, Resid.Martingale), col = "red")
+       main = "Martingale Resid. vs. B.ProcessTpt", 
+       pch = 19 , col = 'black')
+  lines(lowess(B.ProcessTpt, Resid.Martingale), col = "red", lw = 2)
   
   plot(C.Method, Resid.Martingale, 
        xlab = "C.Method", 
        ylab = "Martingale Residuals", 
        main = "Martingale Resid. vs. C.Method")
 })
-
-par(mfrow = c(1, 1))
-# Plot Martingale residuals against fitted values
-plot(fitted(fit.cph_selected), martingale_residuals,
-     xlab = "Fitted Values",
-     ylab = "Martingale Residuals",
-     main = "Martingale Residuals vs. Fitted Values")
-lines(lowess(fitted(fit.cph_selected), martingale_residuals), col = "red")
 ```
 
 #### Observations:
 
 -   A and B used as numeric covariates in the model (although tested at discrete levels) and C used as categorical covariate.
 -   Martingale residuals do not show any clear pattern when plotted against covariates.
--   Martingale residuals do not show any clear pattern when plotted against fitted values
 -   Functional form of the covariates is correctly specified in the model.
 
 ### Checking CPH assumption: Deletion residuals (DFBETAS)
 
 ```{r}
 # Residuals with deletion
-deletion_residuals <- residuals(fit.cph_selected, type = "dfbetas")
-deletion_residuals_df <- sqrt(rowSums(deletion_residuals^2)) # Calculate the overall influence of each observation
-df$Resid.DFBETAS <- deletion_residuals_df
+df$Resid.DFBETAS <- sqrt(rowSums(residuals(fit.cph_selected, type = "dfbetas")^2))
 
-# Plot the deletion residuals
+# Plot
 plot(df$Resid.DFBETAS, type = "h", 
      xlab = "Observation Index", 
      ylab = "DFBETAS Residuals", 
@@ -330,45 +313,56 @@ abline(h = 0, col = "red")
 
 ```{r}
 # Proportionality of hazards log-log plots
-
-surv = ddply(df, 
-             factor_names, 
-             function(subdf) {
-               fit <- survfit(Surv(Cycles, Censoring) ~ 1, data = subdf)
-               data.frame(
-                 time = fit$time, 
-                 surv = fit$surv, 
-                 group = paste(subdf[1, factor_names], collapse = "_"))
-               }
-             )
-
-ggplot(surv, aes(x = time, y = -log(-log(surv)), color = group)) +
-  geom_step() +
-  coord_trans(x = "log", y = "identity") +
-  labs(title = "Log-Log Survival Curves for Proportional Hazards Check",
-       x = "Time (Cycles)",
-       y = "-log(-log(Survival Probability))")
-
+for (f in factor_names) {
+  surv = ddply(df, 
+               f, 
+               function(subdf) {
+                 fit <- survfit(Surv(Cycles, Censoring) ~ 1, data = subdf)
+                 data.frame(
+                   time = fit$time, 
+                   surv = fit$surv, 
+                   group = paste(subdf[1, factor_names], collapse = "_"))
+                 })
+  
+  print(ggplot(surv, aes(x = time, y = -log(-log(surv)), color = group)) +
+          geom_step(linewidth = 1.5) +
+          coord_trans(x = "log", y = "identity") +
+          labs(title = "Log-Log Survival Curves for Proportional Hazards Check",
+               x = "Time (Cycles)",
+               y = "-log(-log(Survival Probability))"))
+}
 ```
 
 #### Observations:
 
+-   A and B are numeric covariates (although tested at discrete levels).
 -   Log-log plots show approximately parallel curves for different groups, suggesting that the proportional hazards assumption is reasonable for the selected CPH model.
 
 ### Checking CPH assumption: Schoenfeld residuals
 
 ```{r}
 # Check proportional hazards assumption
-residual.sch <- cox.zph(fit.cph_selected)
-print(residual.sch)
+residual.Schoenfeld <- cox.zph(fit.cph_selected)
+print(residual.Schoenfeld)
 
 # Residuals vs. Time (Cycles) for each covariate
-plot(residual.sch, var = "A.Stroke", main = "Schoenfeld Residuals for A.Stroke")
-plot(residual.sch, var = "B.ProcessTpt", main = "Schoenfeld Residuals for B.ProcessTpt")
-plot(residual.sch, var = "C.Method", main = "Schoenfeld Residuals for C.Method")
+plot(residual.Schoenfeld, 
+     var = "A.Stroke", 
+     main = "Schoenfeld Residuals for A.Stroke",
+     pch = 19 , col = 'red', lw = 2)
+plot(residual.Schoenfeld, 
+     var = "B.ProcessTpt", 
+     main = "Schoenfeld Residuals for B.ProcessTpt",
+     pch = 19 , col = 'red', lw = 2)
+plot(residual.Schoenfeld, 
+     var = "C.Method", 
+     main = "Schoenfeld Residuals for C.Method",
+     pch = 19 , col = 'red', lw = 2)
+
+ggcoxzph(residual.Schoenfeld)
 ```
 
 #### Observations:
 
--   The global test for proportional hazards assumption is not significant (p-values \> 0.05), suggesting that the covariate effects are constant over time.
--   Smoothed Schoenfeld residual plots vs. Time (Cycles) shows an approximately flat line, further supporting the proportional hazards assumption.
+-   The global and each covariate tests for proportional hazards assumption are not statistically significant (p \> 0.05), suggesting that the covariate effects are constant over time.
+-   Schoenfeld residual plots vs. Time (Cycles) shows an approximately flat smoothed lines for each covariate, further supporting the proportional hazards assumption.
