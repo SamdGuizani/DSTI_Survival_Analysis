@@ -59,13 +59,28 @@ df <- df |> uncount(Count)
 # Convert Method to factor
 df$C.Method <- as.factor(df$C.Method)
 df$C.Method <- relevel(df$C.Method, ref = "Old" ) # "Old" considered as reference
-
-# Convert Censoring to factor (0 for censored, 1 for event)
-df$Censoring <- ifelse(df$Censoring == "Failed", 1, 0)
-table(df$Censoring)
 ```
 
 ## Exploratory Data Analysis
+
+### Summary tables and basic plots
+
+```{r}
+# Convert Censoring 0 (for censored) and 1 (for failure event)
+df$Censoring <- ifelse(df$Censoring == "Failed", 1, 0)
+table(df$Censoring)
+
+# Data summary
+summary(df)
+
+# Histogram of Cycles
+gghistogram(df, x = "Cycles", y = "count", fill = 'lightblue', bins = 15)
+```
+
+#### Observations:
+
+-   35 observations are censored (among 108).
+-   Effect of censoring on Cycles distribution is obvious on the histogram.
 
 ### Boxplots
 
@@ -99,7 +114,7 @@ print(ggplot(df, aes(x = A.Stroke, y = Cycles, colour = as.factor(B.ProcessTpt))
 
 #### Observations:
 
--   ***ATTENTION***: Fitting a linear regression is only made for *informative purpose*. Censored data should not be modeled using linear regression models.
+-   ***ATTENTION***: Fitting a linear regression is only made for *informative / exploration purpose*. Censored data should not be modeled using linear regression models.
 -   Increasing A -\> increasing failure rate
 -   Increasing B -\> increasing failure rate
 -   New method (C) -\> decreasing failure rate
@@ -144,6 +159,7 @@ for (f in factor_names) {
 
 ```{r}
 # Compare groups using Logrank or Fleming-Harrington tests 
+# For each factor, stratify by the other two factors to control for their effects
 
 rho = 0 # 0 for Logrank, 1 for FH test
 
@@ -169,7 +185,7 @@ for (f in factor_names) {
 
 #### Observations:
 
--   A, B and C show statistically significant differences (p \< 0.001) in survival curves
+-   A, B and C show statistically significant differences (p \< 0.001) in survival curves. NOTE: For each test, the other two covariates are included as stratification variables.
 
 ### Hazard functions at low vs. high levels of each covariate
 
